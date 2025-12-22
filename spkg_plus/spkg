@@ -7,6 +7,7 @@ PKG_DIR="./sources/"
 TIME_OUT="10" # 10 second connection timout 
 MAX_TIMEOUT="300" # 5 minute timeout
 SUCCESS_URLS=() # Array of urls that connected successfully
+USER_AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
 
 load_repos() {
     # Load the textfile of repos to array
@@ -26,6 +27,7 @@ pkg_search() {
 
     for repo in "${REPOS[@]}"; do
         path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
+            -A "$USER_AGENT" \
             | grep -oE "$pkg[^\"]*\.tar\.[^\" ]+" \
             | head -n 1)
 
@@ -52,6 +54,7 @@ download_pkg() {
         echo -e "Downloading: $name\n  From: $pkg_url"
 
         if curl -fsSL "$pkg_url" \
+            -A "$USER_AGENT" \
             -o "$PKG_DIR/$name" \
             --max-time "$MAX_TIMEOUT"; then
             
