@@ -1,30 +1,113 @@
 #!/bin/bash
 set -e
 
-REPO="https://lfs.gnlug.org/pub/lfs/lfs-packages/12.4/"
-PKG_DIR="/mnt/lfs/sources"
+REPOS=("https://lfs.gnlug.org/pub/lfs/lfs-packages/12.4/")
+REPO_LIST="REPO_LIST.txt"
+PKG_DIR="./sources/"
+TIME_OUT="10" # 10 second connection timout 
+MAX_TIMEOUT="300" # 5 minute timeout
+SUCCESS_URLS=("") # Array of urls that connected successfully
 
-get_pkg() {
+load_repos() {
+    # Load the textfile of repos to array
+    while IFS= read -r line; do
+        if [[ "$line" == \#* ]]; then
+            :
+        else
+            REPOS+=("$line")
+        fi
+    done < "$REPO_LIST"
+}
+
+pkg_search() {
+    # Search for a single package
+    # Param1: Name of package in string form
+    local pkg=$1
+    SUCCESS_URLS=("") # Sanity Check, clear with every search
+
+    for repo in "${REPOS[@]}"; do
+        path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
+            | grep -oE "$pkg[^\"]*\.tar\.[^\" ]+" \
+            | head -n 1)
+
+        [[ -n "$path" ]] && SUCCESS_URLS+=("$repo/$path")
+    done
+
+    # Ask download to do it's job
+    download_pkg
+}
+
+download_pkg() {
+    # Download a single package
+    # Note: If the download passes the timeout it tries the next successful link
+    name=$(basename "$pkg_url")
+    repo_len=$((${#SUCCESS_URLS[@]} - 1))
+
+    idx=0
+    for pkg in "${SUCCESS_URLS[@]}"; do
+        status=$(curl -fsSL "$pkg_url" -o "$PKG_DIR/$name" --max-time "$MAX_TIMEOUT")              
+        idx+=1
+
+        if [ "$status" -ne 28 ]; then
+            break
+            success "$name"
+        else
+            # Clean up the failed files
+            clean_up "$name"
+
+            if [ "$idx" -eq "$repo_len" ]; then
+                break
+                failure "$name"
+            fi
+        fi
+    done
+}
+
+clean_up() {
+    # Clean up any files made from failed download attempts
+    # Param1: Full name of the program
+    name=$1
+    rm -rfv "$INSTALL_DIR/$name"
+}
+
+failure() {
+    # Tell the user a file couldn't be downloaded!
+    # Param1: Full name of the program
+    name=$1
+    tries=$((${#SUCCESS_URLS} - 1)) # Number of URLS attempted
+    echo -e "Unable to download $name (after $tries tries)"
+    exit 1
+}
+
+success() {
+    # Tell the user it's been downloaded successfully!
+    # Param1: Full name of the program
+    name=$1
+    echo -e "Successfully downloaded $name!"
+    exit 0
+}
+
+main() {
+    # Initialize the Package Downloader
+    # Param1: The name of the package
     local name="$1"
 
+    [[ ! -d "$PKG_DIR" ]] && { mkdir -pv "$PKG_DIR"; }
     [[ -z "$name" ]] && { echo "Usage: spkg <package>"; return 1; }
-    [[ ! -d "$PKG_DIR" ]] && { mkdir -p "$PKG_DIR"; }
 
-    echo "Searching for $name..."
-
-    # Fetch HTML and grep for filename
-    local path
-    path=$(curl -fsSL "$REPO" \
-        | grep -oE "$name[^\"]*\.tar\.[^\" ]+" \
-        | head -n 1)
-
-    if [[ -z "$path" ]]; then
-        echo "Package not found."
+    # TODO: Fix this bs
+    if [ ! -f "$REPO_LIST" ]; then
+        local prompt="# Use # to comment out repos\n# Add repo urls below"
+        echo -e "$prompt" > "$REPO_LIST"
+        echo -e "$REPO_LIST created in $(realpath $REPO_LIST)"
         exit 1
     fi
 
-    echo "Found $path"
-    curl -fsSL "$REPO/$path" -o "$PKG_DIR/$path"
+    load_repos "$REPO_LIST"
+    echo -e "Repository list [${#REPOS[@]}] loaded to memory..."
+
+    echo "Searching for $name..."
+    pkg_search "$name"
 }
 
-get_pkg "$@"
+main "$@"
