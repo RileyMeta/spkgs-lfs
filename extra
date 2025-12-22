@@ -1,0 +1,150 @@
+#!/bin/bash
+set -e
+
+REPOS=()
+REPO_LIST="REPO_LIST.txt"
+PKG_DIR="./sources/"    # Install Directory
+TIME_OUT="10"           # Connection timeout
+MAX_TIMEOUT="300"       # Full curl timeout
+SUCCESS_URLS=()         # Array of urls that connected successfully
+USER_AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
+
+load_repos() {
+    while IFS= read -r line; do
+        if [[ "$line" == \#* ]] || [[ -z "$line" ]]; then
+            :
+        else
+            REPOS+=("$line")
+        fi
+    done < "$REPO_LIST"
+
+    local repo_num=${#REPOS[@]}
+    local repo_prompt="repo"
+
+    if [ "$repo_num" -gt 1 ]; then
+        repo_prompt="${repo_prompt}s"
+    fi
+
+    echo -e "Loaded repository list [$repo_num $repo_prompt] to memory..."
+}
+
+pkg_search() {
+    # Search for a single package
+    local pkg=$1
+
+    echo "Searching for $pkg..."
+
+    for repo in "${REPOS[@]}"; do
+        path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
+            -A "$USER_AGENT" \
+            | grep -oE "$pkg[^\"]*\.tar\.[^\" ]+" \
+            | head -n 1)
+
+        if [ -n "$path" ]; then
+            SUCCESS_URLS+=("$repo$path")
+            echo -e "$repo$path ... [FOUND]"
+        else
+            echo -e "$repo ... [NOT FOUND]"
+        fi
+    done
+
+    # Ask download to do it's job
+    if ! file_exists "$path"; then
+        download_pkg "$path"
+    fi
+}
+
+file_exists() {
+    # Check if a package has already been downloaded
+    name=$1
+    full_file=$(realpath "$PKG_DIR/$name")
+
+    if [[ ! -f "$full_file" ]]; then
+        echo -e "  Package [$name] does not exist in: $PKG_DIR"
+        return 1
+    else
+        file_size_bytes=$(wc -c < "$full_file")
+        file_size=$(awk "BEGIN {printf \"%.2f\", $file_size_bytes / 1048576}")
+        echo -e "Package [$name] already exists in: $PKG_DIR\n  Size: $file_size MB\n  Location: $full_file"
+        return 0
+    fi
+}
+
+download_pkg() {
+    # Download a single package
+    # Note: If the download passes the timeout it tries the next successful link
+    local name=$1
+    local idx=0
+
+    for pkg_url in "${SUCCESS_URLS[@]}"; do
+        echo -e "Downloading: $name\n  From: $pkg_url"
+
+        if curl -fsSL "$pkg_url" \
+            -A "$USER_AGENT" \
+            -o "$PKG_DIR/$name" \
+            --max-time "$MAX_TIMEOUT"; then
+
+            success "$name"
+            return 0
+        else
+            local exit_code=$?
+            echo -e "Download failed with exit code $exit_code"
+
+            # Clean up failed downloads
+            clean_up "$name"
+            ((idx++))
+
+            if [ "$idx" -eq "${#SUCCESS_URLS[@]}" ]; then
+                failure "$name"
+            fi
+        fi
+    done
+}
+
+clean_up() {
+    # Clean up any files made from failed download attempts
+    # Param1: Full name of the program
+    name=$1
+    rm -rfv "$PKG_DIR/$name"
+}
+
+failure() {
+    # Tell the user a file couldn't be downloaded!
+    # Param1: Full name of the program
+    name=$1
+    tries=$((${#SUCCESS_URLS} - 1)) # Number of URLS attempted
+    echo -e "Unable to download $name (after $tries tries)"
+    exit 1
+}
+
+success() {
+    name=$1
+    full_file=$(realpath "$PKG_DIR/$name")
+    file_size_bytes=$(wc -c < "$full_file")
+    file_size=$(awk "BEGIN {printf \"%.2f\", $file_size_bytes / 1048576}")
+
+    prompt="Successfully downloaded $name!\n"
+    prompt+="  Size: $file_size MB\n"
+    prompt+="  Location: $full_file"
+    echo -e "$prompt"
+    exit 0
+}
+
+main() {
+    local name="$1"     # Name of the package
+
+    [[ ! -d "$PKG_DIR" ]] && { mkdir -pv "$PKG_DIR"; }
+    [[ -z "$name" ]] && { echo "Usage: spkg <package>"; return 1; }
+
+    if [ ! -f "$REPO_LIST" ]; then
+        local prompt="# Use # to comment out repos\n# Add repo urls below"
+        echo -e "$prompt" > "$REPO_LIST"
+        echo -e "$REPO_LIST created in $(realpath $REPO_LIST)"
+        exit 1
+    fi
+
+    load_repos
+    pkg_search "$name"
+}
+
+main "$@"
