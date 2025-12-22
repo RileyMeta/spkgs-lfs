@@ -3,6 +3,7 @@ set -e
 
 REPO="https://lfs.gnlug.org/pub/lfs/lfs-packages/12.4/"
 PKG_DIR="/mnt/lfs/sources"
+USER_AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
 
 get_pkg() {
     local name="$1"
@@ -14,7 +15,7 @@ get_pkg() {
 
     # Fetch HTML and grep for filename
     local path
-    path=$(curl -fsSL "$REPO" \
+    path=$(curl -fsSL "$REPO" -A "$USER_AGENT" \
         | grep -oE "$name[^\"]*\.tar\.[^\" ]+" \
         | head -n 1)
 
@@ -24,7 +25,7 @@ get_pkg() {
     fi
 
     echo -e "$path ... [FOUND]"
-    curl -fsSL "$REPO/$path" -o "$PKG_DIR/$path"
+    curl -fsSL -A "$USER_AGENT" "$REPO/$path" -o "$PKG_DIR/$path"
     echo -e "Name: $path\nLocation: $PKG_DIR$path"
 }
 
