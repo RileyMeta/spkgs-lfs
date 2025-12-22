@@ -6,12 +6,12 @@ REPO_LIST="REPO_LIST.txt"
 PKG_DIR="./sources/"
 TIME_OUT="10" # 10 second connection timout 
 MAX_TIMEOUT="300" # 5 minute timeout
-SUCCESS_URLS=("") # Array of urls that connected successfully
+SUCCESS_URLS=() # Array of urls that connected successfully
 
 load_repos() {
     # Load the textfile of repos to array
     while IFS= read -r line; do
-        if [[ "$line" == \#* ]]; then
+        if [[ "$line" == \#* ]] || [[ -z "$line" ]]; then
             :
         else
             REPOS+=("$line")
@@ -23,40 +23,50 @@ pkg_search() {
     # Search for a single package
     # Param1: Name of package in string form
     local pkg=$1
-    SUCCESS_URLS=("") # Sanity Check, clear with every search
+    local repo_len=$((${#REPOS[@]} - 1))
 
     for repo in "${REPOS[@]}"; do
         path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
             | grep -oE "$pkg[^\"]*\.tar\.[^\" ]+" \
             | head -n 1)
 
-        [[ -n "$path" ]] && SUCCESS_URLS+=("$repo/$path")
+        if [ -n "$path" ]; then
+            SUCCESS_URLS+=("$repo$path")
+            echo -e "${SUCCESS_URLS[@]} ... [FOUND]"
+        else
+            echo -e "${repo}${path} ... [NOT FOUND!]"
+        fi
     done
 
     # Ask download to do it's job
-    download_pkg
+    download_pkg "$path"
 }
 
 download_pkg() {
     # Download a single package
-    # Note: If the download passes the timeout it tries the next successful link
-    name=$(basename "$pkg_url")
-    repo_len=$((${#SUCCESS_URLS[@]} - 1))
-
+    # Param1: The name of the file
+    # Note: If the download passes the timeout it tries the next successful link 
+    name=$1
     idx=0
-    for pkg in "${SUCCESS_URLS[@]}"; do
-        status=$(curl -fsSL "$pkg_url" -o "$PKG_DIR/$name" --max-time "$MAX_TIMEOUT")              
-        idx+=1
 
-        if [ "$status" -ne 28 ]; then
-            break
+    for pkg_url in "${SUCCESS_URLS[@]}"; do
+        echo -e "Downloading: $name\n  From: $pkg_url"
+
+        if curl -fsSL "$pkg_url" \
+            -o "$PKG_DIR/$name" \
+            --max-time "$MAX_TIMEOUT"; then
+            
             success "$name"
+            return 0
         else
-            # Clean up the failed files
+            local exit_code=$?
+            echo -e "Download failed with exit code $exit_code"
+
+            # Clean up failed downloads
             clean_up "$name"
+            ((idx++))
 
             if [ "$idx" -eq "$repo_len" ]; then
-                break
                 failure "$name"
             fi
         fi
@@ -67,7 +77,7 @@ clean_up() {
     # Clean up any files made from failed download attempts
     # Param1: Full name of the program
     name=$1
-    rm -rfv "$INSTALL_DIR/$name"
+    rm -rfv "$PKG_DIR/$name"
 }
 
 failure() {
@@ -83,7 +93,7 @@ success() {
     # Tell the user it's been downloaded successfully!
     # Param1: Full name of the program
     name=$1
-    echo -e "Successfully downloaded $name!"
+    echo -e "Successfully downloaded $name!\n  Location: $(realpath "$PKG_DIR/$name")"
     exit 0
 }
 
@@ -95,7 +105,6 @@ main() {
     [[ ! -d "$PKG_DIR" ]] && { mkdir -pv "$PKG_DIR"; }
     [[ -z "$name" ]] && { echo "Usage: spkg <package>"; return 1; }
 
-    # TODO: Fix this bs
     if [ ! -f "$REPO_LIST" ]; then
         local prompt="# Use # to comment out repos\n# Add repo urls below"
         echo -e "$prompt" > "$REPO_LIST"
