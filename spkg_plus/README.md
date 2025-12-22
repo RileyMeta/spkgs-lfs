@@ -20,7 +20,8 @@ done < "$REPO_LIST"                 # The file list of repositories
 Near identical to the minimal downloader, wrapped in a for loop and adds the full confirmed valid path to a list for the download function.
 ```sh
 for repo in "${REPOS[@]}"; do
-    path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
+    path=$(curl -fsSL "$repo" -A "$USER_AGENT" \
+        --connect-timeout "$TIME_OUT" \
         | grep -oE "$pkg[^\"]*\.tar\.[^\" ]+" \
         | head -n 1)
 
@@ -38,6 +39,7 @@ for pkg_url in "${SUCCESS_URLS[@]}"; do
     echo -e "Downloading: $name\n  From: $pkg_url"
 
     if curl -fsSL "$pkg_url" \
+        -A "$USER_AGENT" \
         -o "$PKG_DIR/$name" \
         --max-time "$MAX_TIMEOUT"; then
             
