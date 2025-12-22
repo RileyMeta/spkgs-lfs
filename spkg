@@ -1,0 +1,30 @@
+#!/bin/bash
+set -e
+
+REPO="https://lfs.gnlug.org/pub/lfs/lfs-packages/12.4/"
+PKG_DIR="/mnt/lfs/sources"
+
+get_pkg() {
+    local name="$1"
+
+    [[ -z "$name" ]] && { echo "Usage: spkg <package>"; return 1; }
+    [[ ! -d "$PKG_DIR" ]] && { mkdir -p "$PKG_DIR"; }
+
+    echo "Searching for $name..."
+
+    # Fetch HTML and grep for filename
+    local path
+    path=$(curl -fsSL "$REPO" \
+        | grep -oE "$name[^\"]*\.tar\.[^\" ]+" \
+        | head -n 1)
+
+    if [[ -z "$path" ]]; then
+        echo "Package [$name] not found."
+        exit 1
+    fi
+
+    echo "Found $path"
+    curl -fsSL "$REPO/$path" -o "$PKG_DIR/$path"
+}
+
+get_pkg "$@"
