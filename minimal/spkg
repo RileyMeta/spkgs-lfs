@@ -8,7 +8,7 @@ get_pkg() {
     local name="$1"
 
     [[ -z "$name" ]] && { echo "Usage: spkg <package>"; return 1; }
-    [[ ! -d "$PKG_DIR" ]] && { mkdir -p "$PKG_DIR"; }
+    [[ ! -d "$PKG_DIR" ]] && { mkdir -pv "$PKG_DIR"; }
 
     echo "Searching for $name..."
 
@@ -23,8 +23,9 @@ get_pkg() {
         exit 1
     fi
 
-    echo "Found $path"
+    echo -e "$path ... [FOUND]"
     curl -fsSL "$REPO/$path" -o "$PKG_DIR/$path"
+    echo -e "Name: $path\nLocation: $PKG_DIR/$path"
 }
 
 get_pkg "$@"
