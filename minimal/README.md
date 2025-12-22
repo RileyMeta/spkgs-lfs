@@ -8,7 +8,7 @@ This is the smallest and most minimal version of SPKG
 It's a very basic bash script that uses `curl` to walk an HTTP(S) repository and download the file.
 Below are the two curl calls actually used, as written in the script. Everything else is fluff to make it work.
 ```sh
-curl -fsSL "$REPO" \
+curl -fsSL "$REPO" -A "Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0" \
     | grep -oE "$name[^\"]*\.tar\.[^\" ]+" \
     | head -n 1
 
