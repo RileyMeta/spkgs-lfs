@@ -36,7 +36,7 @@ pkg_search() {
     local pkg="$1"
     local path=""
 
-    echo "Searching for $pkg..."
+    echo -e "Searching for $pkg..."
 
     for repo in "${REPOS[@]}"; do
         path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
@@ -54,9 +54,9 @@ pkg_search() {
 
     if [ "${#SUCCESS_URLS[@]}" -eq 0 ]; then
         if [ "$REPO_LEN" -gt 1 ]; then
-            local repo_prompt="repository"
-        else
             local repo_prompt="repositories"
+        else
+            local repo_prompt="repository"
         fi
 
         echo -e "[Error]: \"$pkg\" was not found in $REPO_LEN $repo_prompt..."
@@ -79,7 +79,7 @@ patch_search() {
     local name="$1"
     local path=""
 
-    echo "Searching for $name Patch..."
+    echo -e "Searching for $name Patch..."
 
     for repo in "${REPOS[@]}"; do
         path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
@@ -153,8 +153,17 @@ download_pkg() {
             -o "$PKG_DIR/$name" \
             --max-time "$MAX_TIMEOUT"; then
 
-            check_sums "$name"
-            return 0 # Success
+            if check_sums "$name"; then
+                return 0 # Success
+            else
+                echo -e "Checksum verification failed, trying next mirror..."
+                ((idx++))
+
+                if [ "$idx" -eq "${#url_list[@]}" ]; then
+                    return 1 # All mirrors (and checksums) failed
+                fi
+                continue
+            fi
         else
             local exit_code="$?"
             echo -e "Download failed with exit code $exit_code"
@@ -199,6 +208,7 @@ check_sums() {
     # Verify the package matches the checksum
     local name="$1"
     local lfs_checksum="https://www.linuxfromscratch.org/lfs/view/stable/md5sums"
+    local found=0 # boolean
 
     if [ -z "$MD5SUMS" ] || [ ! -f "$MD5SUMS" ]; then
         curl "$lfs_checksum" -o "$PKG_DIR/md5sums"
@@ -208,18 +218,34 @@ check_sums() {
         [[ -z "$line" ]] || [[ "$line" == \#* ]] && continue
 
         if [[ "$line" =~ "$name" ]]; then
-            local expected_hash=$(echo "$line" | awk '{print $1}')
-            local filename=$(echo "$line" | awk '{$1=""; print $0}' | xargs)
+            found=1
+            local expected_hash=$(echo -e "$line" | awk '{print $1}')
+            local filename=$(echo -e "$line" | awk '{$1=""; print $0}' | xargs)
 
             if [[ "$filename" == *".patch" ]]; then
-                echo "Verifying patch: $filename"
-                verify_checksum "$filename" "$expected_hash"
+                echo -e "Verifying patch: $filename"
+                if ! verify_checksum "$filename" "$expected_hash"; then
+                    clean_up "$filename"
+                    return 1 # Checksum failed
+                fi
             else
-                echo "Verifying program: $filename"
-                verify_checksum "$filename" "$expected_hash"
+                echo -e "Verifying program: $filename"
+                if ! verify_checksum "$filename" "$expected_hash"; then
+                    clean_up "$filename"
+                    return 1 # Checksum failed
+                fi
             fi
         fi
     done < "$MD5SUMS"
+
+    # Make sure file is found in MD5 before saving to the disk.
+    if [ "$found" -eq 0 ]; then
+        echo -e "[Error]: $name not found in md5sum list - cannot verify integrity"
+        clean_up "$name"
+        return 1
+    fi
+
+    return 0 # All checksums passed
 }
 
 clean_up() {
@@ -258,7 +284,7 @@ main() {
     local name="$1"     # Name of the package
 
     [[ ! -d "$PKG_DIR" ]] && { mkdir -pv "$PKG_DIR"; }
-    [[ -z "$name" ]] && { echo "Usage: spkg <package>"; return 1; }
+    [[ -z "$name" ]] && { echo -e "Usage: spkg <package>"; return 1; }
 
     if [ ! -f "$REPO_LIST" ]; then
         local prompt="# Use # to comment out repos\n# Add repo urls below"
