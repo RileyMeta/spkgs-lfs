@@ -23,7 +23,6 @@ pkg_search() {
     # Search for a single package
     # Param1: Name of package in string form
     local pkg=$1
-    local repo_len=$((${#REPOS[@]} - 1))
 
     for repo in "${REPOS[@]}"; do
         path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
@@ -66,7 +65,7 @@ download_pkg() {
             clean_up "$name"
             ((idx++))
 
-            if [ "$idx" -eq "$repo_len" ]; then
+            if [ "$idx" -eq "$((${#SUCCESS_URLS} - 1))" ]; then
                 failure "$name"
             fi
         fi
