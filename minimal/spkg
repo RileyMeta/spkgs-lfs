@@ -25,7 +25,7 @@ get_pkg() {
 
     echo -e "$path ... [FOUND]"
     curl -fsSL "$REPO/$path" -o "$PKG_DIR/$path"
-    echo -e "Name: $path\nLocation: $PKG_DIR/$path"
+    echo -e "Name: $path\nLocation: $PKG_DIR$path"
 }
 
 get_pkg "$@"
