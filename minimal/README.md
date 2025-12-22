@@ -1,6 +1,9 @@
 # SPKG
 This is the smallest and most minimal version of SPKG
 
+# Usage
+`./spkg <package_name>` - All you need is the name
+
 ## How it works
 It's a very basic bash script that uses `curl` to walk an HTTP(S) repository and download the file.
 Below are the two curl calls actually used, as written in the script. Everything else is fluff to make it work.
