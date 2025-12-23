@@ -10,6 +10,7 @@ MAX_TIMEOUT="300"           # Full curl timeout
 SUCCESS_URLS=()             # Array of program urls
 SUCCESS_PATCH=()            # Array of patch urls
 MD5SUMS="$PKG_DIR/md5sums"  # Checksum list for LFS Packages
+LFS_CHECKSUM="https://www.linuxfromscratch.org/lfs/view/stable/md5sums"
 USER_AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
 
 load_repos() {
@@ -64,13 +65,18 @@ pkg_search() {
     fi
 
     # Ask download to do it's job
-    if ! file_exists "$path"; then
-        if download_pkg "$path" "pkg"; then
-            success "$path" "pkg"
-        else
-            echo -e "Unable to download $path after trying all available mirrors."
-            exit 1
+    if in_sumlist "$path"; then
+        if ! file_exists "$path"; then
+            if download_pkg "$path" "pkg"; then
+                success "$path" "pkg"
+            else
+                echo -e "Unable to download $path after trying all available mirrors."
+                exit 1
+            fi
         fi
+    else
+        echo -e "[Error]: $path not in official LFS package list - aborting"
+        exit 1
     fi
 }
 
@@ -101,10 +107,15 @@ patch_search() {
     fi
 
     # Ask download to do it's job
-    if ! file_exists "$path"; then
-        if download_pkg "$path" "patch"; then
-            success "$path" "patch"
+    if in_sumlist "$path"; then
+        if ! file_exists "$path"; then
+            if download_pkg "$path" "patch"; then
+                success "$path" "patch"
+            fi
         fi
+    else
+        echo -e "[Warning]: Patch $path not in official LFS list - skipping"
+        return 0 # Not Fatal for patches
     fi
 
     return 0 # Even a failure is a Success in some ways
@@ -204,14 +215,35 @@ verify_checksum() {
     fi
 }
 
+in_sumlist() {
+    # Check if a file pulled from repository is in checksum list
+    local name="$1"
+
+    if [ -z "$MD5SUMS" ] || [ ! -f "$MD5SUMS" ]; then
+        curl "$LFS_CHECKSUM" -o "$PKG_DIR/md5sums"
+    fi
+
+    while IFS= read -r line; do
+        [ -z "$line" ] || [[ "$line" == \#* ]] && continue
+
+        local filename=$(echo "$line" | awk '{$1=""; print $0}' | xargs)
+        if [[ "$filename" == "$name" ]]; then
+            echo -e "  $name found in md5sums list"
+            return 0 # Found in list
+        fi
+    done < "$MD5SUMS"
+
+    echo -e "  $name not found in md5sums list - skipping download"
+    return 1 # Not Found
+}
+
 check_sums() {
     # Verify the package matches the checksum
     local name="$1"
-    local lfs_checksum="https://www.linuxfromscratch.org/lfs/view/stable/md5sums"
     local found=0 # boolean
 
     if [ -z "$MD5SUMS" ] || [ ! -f "$MD5SUMS" ]; then
-        curl "$lfs_checksum" -o "$PKG_DIR/md5sums"
+        curl "$LFS_CHECKSUM" -o "$PKG_DIR/md5sums"
     fi
 
     while IFS= read -r line; do
