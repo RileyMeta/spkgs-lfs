@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e -u
 
+# Global Variables
+VERSION="1.0.0"
 REPOS=()
 REPO_LEN=0
 REPO_LIST="REPO_LIST.txt"
@@ -12,7 +14,10 @@ SUCCESS_PATCH=()            # Array of patch urls
 MD5SUMS="$PKG_DIR/md5sums"  # Checksum list for LFS Packages
 LFS_CHECKSUM="https://www.linuxfromscratch.org/lfs/view/stable/md5sums"
 USER_AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
+
+# CLI Args
 FORCE_SORT=0
+NO_PATCH=0
 
 # Colors and shit
 TXT_BOLD='\033[1m'
@@ -213,6 +218,8 @@ file_exists() {
             file_size=$(awk "BEGIN {printf \"%.2f\", $file_size_bytes / 1048576}")
             local measurement="MB"
         fi
+
+        NO_PATCH=1
         echo -e "\n${TXT_BOLD}Package [$name] already exists in:${TXT_END} $PKG_DIR\n  Size: $file_size $measurement\n  Location: $full_file"
         return 0
     fi
@@ -387,32 +394,75 @@ success() {
     echo -e "$prompt"
 }
 
+help_info() {
+    local prompt="Usage: spkg [OPTION] <package>..."
+    prompt+="\nEasily download a specific package from a repository."
+    prompt+="\n\n  -n, --no-patch\tdo not check for patches"
+    prompt+="\n  -f, --force-sort\tforce the downloader to re-sort the repositories"
+    prompt+="\n  -p, --force-patch\tforce the downloader to check for patches"
+    prompt+="\n\n  -h, --help\t\tdisplay this help and exit"
+    prompt+="\n  -v, --version\t\toutput version information and exit"
+    prompt+="\n\nReport bugs to: https://github.com/RileyMeta/spkgs-lfs/pulls"
+    echo -e "$prompt"
+}
+
+version_info() {
+    local prompt="spkg (Simple Package) $VERSION"
+    prompt+="\nCopyright (C) 2025 Riley Ava."
+    prompt+="\nLicense MPL-2: Mozilla Public License 2.0 <https://www.mozilla.org/en-US/MPL/2.0/>."
+    prompt+="\nThis is free software: you are free to change and redistribute it."
+    prompt+="\nThere is NO WARRANTY, to the extent permitted by law."
+    prompt+="\n\nWritten by Riley Ava."
+    echo -e "$prompt"
+}
+
 main() {
     local name="$1"     # Name of the package
-    local nopatch=0     # Skip searching for a patch file
 
-    if [ "$1" ==  "--no-patch" ]; then
-        nopatch=1
+    if [[ "$1" == --* || "$1" == -* ]]; then
+        if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+            help_info
+            exit 0
+        elif [ "$1" == "--version" ] || [ "$1" == "-v" ]; then
+            version_info
+            exit 0
+        fi
+
+        if [[ "$1" ==  "--no-patch" || "$1" == "-n" ]]; then
+            NO_PATCH=1
+        elif [[ "$1" == "--force-sort" || "$1" == "-f" ]]; then
+            FORCE_SORT=1
+        elif [[ "$1" == "--force-patch" || "$1" == "-p" ]]; then
+            FORCE_PATCH=1
+        else
+            echo -e "$name is not recognized.\nUse '--help' to see all available options."
+            exit 1
+        fi
+
         shift
+        name="${1:-}"
+
+        if [[ -z "$name" ]]; then
+            echo -e "Usage: spkg [options] <package>"
+            exit 1
+        fi
+    else
         name="$1"
-    elif [ "$1" == "--force-sort" ]; then
-        FORCE_SORT=1
     fi
 
     [[ ! -d "$PKG_DIR" ]] && { mkdir -pv "$PKG_DIR"; }
-    [[ -z "$name" ]] && { echo -e "Usage: spkg <package>"; return 1; }
 
     if [ ! -f "$REPO_LIST" ]; then
         local prompt="# Use # to comment out repos\n# Add repo urls below"
         echo -e "$prompt" > "$REPO_LIST"
         echo -e "$REPO_LIST created in $(realpath $REPO_LIST)"
-        return 1
+        exit 1
     fi
 
     load_repos
     pkg_search "$name"
 
-    if [ "$nopatch" != 1 ]; then
+    if [ "$NO_PATCH" != 1 ] || [ "$FORCE_PATCH" != 0 ]; then
         patch_search "$name"
     fi
 }
