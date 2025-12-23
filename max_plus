@@ -122,7 +122,7 @@ pkg_search() {
 
     for repo in "${REPOS[@]}"; do
         path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
-            -A "$USER_AGENT" \
+            -A "$USER_AGENT" --no-progress-meter \
             | grep -oE "$pkg[^\"]*\.tar\.[^\" ]+" \
             | head -n 1)
 
@@ -151,7 +151,7 @@ pkg_search() {
             if download_pkg "$path" "pkg"; then
                 success "$path" "pkg"
             else
-                echo -e "Unable to download $path after trying all available mirrors."
+                echo -e "${TXT_BOLD}[Error]:${TXT_END} Unable to download $path after trying all available mirrors."
                 exit 1
             fi
         fi
@@ -170,7 +170,7 @@ patch_search() {
 
     for repo in "${REPOS[@]}"; do
         path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
-            -A "$USER_AGENT" \
+            -A "$USER_AGENT" --no-progress-meter \
             | grep -oE "$name[^\"]*\.patch" \
             | head -n 1)
 
@@ -242,7 +242,7 @@ download_pkg() {
     for pkg_url in "${url_list[@]}"; do
         echo -e "\n${TXT_BOLD}Downloading:${TXT_END} $name\n  From: $pkg_url"
 
-        if curl -fsSL "$pkg_url" \
+        if curl -fSL "$pkg_url" \
             -A "$USER_AGENT" \
             -o "$PKG_DIR/$name" \
             --max-time "$MAX_TIMEOUT"; then
