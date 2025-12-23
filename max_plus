@@ -12,9 +12,35 @@ SUCCESS_PATCH=()            # Array of patch urls
 MD5SUMS="$PKG_DIR/md5sums"  # Checksum list for LFS Packages
 LFS_CHECKSUM="https://www.linuxfromscratch.org/lfs/view/stable/md5sums"
 USER_AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
+FORCE_SORT=0
+
+# Colors and shit
+TXT_BOLD='\033[1m'
+TXT_END='\033[0m'
+
+test_repo_speed() {
+    # Test download speed of a repository
+    local url="$1"
+    local start_time=$(date +%s.%N)
+
+    curl -fsSL "$url" \
+        -A "$USER_AGENT" \
+        --connect-timeout "$TIME_OUT" \
+        --max-time 10 \
+        -o /dev/null \
+        -w '%{time_total}' 2>/dev/null || echo "999"
+}
 
 load_repos() {
+    local skip_sort=0
+
     while IFS= read -r line; do
+        # if any comment in the REPO_LIST contains '# --lock' it will not auto-sort.
+        if [[ "$line" == *"# --lock"* ]] || [[ "" == *"#--lock"* ]]; then
+            skip_sort=1
+            continue
+        fi
+
         if [[ "$line" == \#* ]] || [[ -z "$line" ]]; then
             :
         else
@@ -29,29 +55,56 @@ load_repos() {
         repo_prompt="${repo_prompt}s"
     fi
 
-    echo -e "Loaded repository list [$REPO_LEN $repo_prompt] to memory..."
+    echo -e "${TXT_BOLD}Loaded repository list to memory ...${TXT_END} [$REPO_LEN $repo_prompt]"
 
     # Sort repos by speed
     if [ "$REPO_LEN" -gt 1 ]; then
-        echo -e "Testing repository speeds..."
+        if [ "$skip_sort" -eq 0 ] || [ "$FORCE_SORT" -eq 1 ]; then
+            echo -e "${TXT_BOLD}Testing repository speeds...${TXT_END}"
 
-        local -a repo_speed_pairs
-        for repo in "${REPOS[@]}"; do
-            local speed=$(test_repo_speed "$repo")
-            echo -e "  [${speed}s] $repo"
-            repo_speed_pairs+=("$repo|$speed")
-        done
+            local -a repo_speed_pairs
+            for repo in "${REPOS[@]}"; do
+                local speed=$(test_repo_speed "$repo")
+                echo -e "  $repo ... ${TXT_BOLD}[${speed:0:5}s]${TXT_END}"
+                repo_speed_pairs+=("$repo|$speed")
+            done
 
-        IFS=$'\n' repo_speed_pairs=($(sort -t'|' -k2 -n <<<"${repo_speed_pairs[*]}"))
-        unset IFS
+            IFS=$'\n' repo_speed_pairs=($(sort -t'|' -k2 -n <<<"${repo_speed_pairs[*]}"))
+            unset IFS
 
-        REPOS=()
-        for pair in "${repo_speed_pairs[@]}"; do
-            REPOS+=("${pair%|*}")
-        done
+            REPOS=()
+            for pair in "${repo_speed_pairs[@]}"; do
+                REPOS+=("${pair%|*}")
+            done
 
-        echo -e "Repositories sorted by speed (fastest first)"
+            echo -e "${TXT_BOLD}Repositories sorted by speed${TXT_END} - fastest first"
+
+            # Write sorted list to file
+            write_sorted_repos
+        elif [ "$skip_sort" -eq 1 ]; then
+            echo -e "${TXT_BOLD}Repository sorting locked${TXT_END} - using list as-is"
+        fi
+    elif [ "$REPO_LEN" -eq 0 ]; then
+        echo -e "${TXT_BOLD}[Error]:${TXT_END} There are no repositories in $REPO_LIST"
+        exit 1
     fi
+}
+
+write_sorted_repos() {
+    # Write the sorted repos to the list and lock it
+    local temp_file="${REPO_LIST}.tmp"
+
+    local content="# Repositories soirted by fastest download speed\n"
+    content+="# This file is locked, remove any line with '# --lock' to to re-test and re-sort\n"
+    echo -e "$content" > "$temp_file"
+
+    for repo in "${REPOS[@]}"; do
+        echo "$repo" >> "$temp_file"
+    done
+
+    # Overwrite original
+    mv "$temp_file" "$REPO_LIST"
+    echo -e "${TXT_BOLD}Updated $REPO_LIST with sorted repositories...${TXT_END}"
 }
 
 pkg_search() {
@@ -59,7 +112,7 @@ pkg_search() {
     local pkg="$1"
     local path=""
 
-    echo -e "Searching for $pkg..."
+    echo -e "\n${TXT_BOLD}Searching for $pkg...${TXT_END}"
 
     for repo in "${REPOS[@]}"; do
         path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
@@ -69,9 +122,9 @@ pkg_search() {
 
         if [ -n "$path" ]; then
             SUCCESS_URLS+=("$repo$path")
-            echo -e "$repo$path ... [FOUND]"
+            echo -e "  $repo$path ... ${TXT_BOLD}[FOUND]${TXT_END}"
         else
-            echo -e "$repo ... [NOT FOUND]"
+            echo -e "  $repo ... ${TXT_BOLD}[NOT FOUND]${TXT_END}"
         fi
     done
 
@@ -82,11 +135,9 @@ pkg_search() {
             local repo_prompt="repository"
         fi
 
-        echo -e "[Error]: \"$pkg\" was not found in $REPO_LEN $repo_prompt..."
+        echo -e "${TXT_BOLD}[Error]:${TXT_END} \"$pkg\" was not found in $REPO_LEN $repo_prompt..."
         return 1
     fi
-
-    # local filename=$(basename "${SUCCESS_URLS[0]}")
 
     # Ask download to do it's job
     if in_sumlist "$path"; then
@@ -99,7 +150,7 @@ pkg_search() {
             fi
         fi
     else
-        echo -e "[Error]: $path not in official LFS package list - aborting"
+        echo -e "${TXT_BOLD}[Error]:${TXT_END} $path not in official LFS package list - aborting"
         exit 1
     fi
 }
@@ -109,7 +160,7 @@ patch_search() {
     local name="$1"
     local path=""
 
-    echo -e "Searching for $name Patch..."
+    echo -e "\n${TXT_BOLD}Searching for $name Patch...${TXT_END}"
 
     for repo in "${REPOS[@]}"; do
         path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
@@ -119,18 +170,16 @@ patch_search() {
 
         if [ -n "$path" ]; then
             SUCCESS_PATCH+=("$repo$path")
-            echo -e "  $repo$path ... [FOUND]"
+            echo -e "  $repo$path ... ${TXT_BOLD}[FOUND]${TXT_END}"
         else
-            echo -e "  $repo ... [NOT FOUND]"
+            echo -e "  $repo ... ${TXT_BOLD}[NOT FOUND]${TXT_END}"
         fi
     done
 
     if [ "${#SUCCESS_PATCH[@]}" -eq 0 ]; then
-        echo -e "Note: No patches were found for $name (this may be normal)."
+        echo -e "${TXT_BOLD}[Note]:${TXT_END} No patches were found for $name (this may be normal)."
         return 0 # Most packages will not have patches
     fi
-
-    # local filename=$(basename "${SUCCESS_PATCH[0]}")
 
     # Ask download to do it's job
     if in_sumlist "$path"; then
@@ -140,7 +189,7 @@ patch_search() {
             fi
         fi
     else
-        echo -e "[Warning]: Patch $path not in official LFS list - skipping"
+        echo -e "${TXT_BOLD}[Warning]:${TXT_END} Patch $path not in official LFS list - skipping"
         return 0 # Not Fatal for patches
     fi
 
@@ -164,22 +213,9 @@ file_exists() {
             file_size=$(awk "BEGIN {printf \"%.2f\", $file_size_bytes / 1048576}")
             local measurement="MB"
         fi
-        echo -e "Package [$name] already exists in: $PKG_DIR\n  Size: $file_size $measurement\n  Location: $full_file"
+        echo -e "\n${TXT_BOLD}Package [$name] already exists in:${TXT_END} $PKG_DIR\n  Size: $file_size $measurement\n  Location: $full_file"
         return 0
     fi
-}
-
-test_repo_speed() {
-    # Test download speed of a repository
-    local url="$1"
-    local start_time=$(date +%s.%N)
-
-    curl -fsSL "$url" \
-        -A "$USER_AGENT" \
-        --connect-timeout "$TIME_OUT" \
-        --max-time 10 \
-        -o /dev/null \
-        -w '%{time_total}' 2>/dev/null || echo "999"
 }
 
 download_pkg() {
@@ -196,7 +232,7 @@ download_pkg() {
     fi
 
     for pkg_url in "${url_list[@]}"; do
-        echo -e "Downloading: $name\n  From: $pkg_url"
+        echo -e "\n${TXT_BOLD}Downloading:${TXT_END} $name\n  From: $pkg_url"
 
         if curl -fsSL "$pkg_url" \
             -A "$USER_AGENT" \
@@ -206,7 +242,7 @@ download_pkg() {
             if check_sums "$name"; then
                 return 0 # Success
             else
-                echo -e "Checksum verification failed, trying next mirror..."
+                echo -e "${TXT_BOLD}Checksum verification failed${TXT_END}, trying next mirror..."
                 ((idx++))
 
                 if [ "$idx" -eq "${#url_list[@]}" ]; then
@@ -216,7 +252,7 @@ download_pkg() {
             fi
         else
             local exit_code="$?"
-            echo -e "Download failed with exit code $exit_code"
+            echo -e "  Download failed with exit code $exit_code"
 
             # Clean up failed downloads
             clean_up "$name"
@@ -243,7 +279,7 @@ verify_checksum() {
     local actual_hash=$(md5sum "$PKG_DIR/$filename" | awk '{print $1}')
 
     if [[ "$expected_hash" == "$actual_hash" ]]; then
-        echo -e "  Checksum verified: $filename"
+        echo -e "  Checksum verified!"
         return 0
     else
         local prompt="  Checksum failed to verify: $filename\n"
@@ -272,7 +308,7 @@ in_sumlist() {
         fi
     done < "$MD5SUMS"
 
-    echo -e "  $name not found in md5sums list - skipping download"
+    echo -e "  ${TXT_BOLD}$name not found in md5sums list${TXT_END} - skipping download"
     return 1 # Not Found
 }
 
@@ -294,13 +330,13 @@ check_sums() {
             local filename=$(echo -e "$line" | awk '{$1=""; print $0}' | xargs)
 
             if [[ "$filename" == *".patch" ]]; then
-                echo -e "Verifying patch: $filename"
+                echo -e "\n${TXT_BOLD}Verifying patch:${TXT_END} $filename"
                 if ! verify_checksum "$filename" "$expected_hash"; then
                     clean_up "$filename"
                     return 1 # Checksum failed
                 fi
             else
-                echo -e "Verifying program: $filename"
+                echo -e "\n${TXT_BOLD}Verifying program:${TXT_END} $filename"
                 if ! verify_checksum "$filename" "$expected_hash"; then
                     clean_up "$filename"
                     return 1 # Checksum failed
@@ -337,7 +373,7 @@ success() {
     local filetype="$2"
     local full_file=$(realpath "$PKG_DIR/$path")
     local file_size_bytes=$(wc -c < "$full_file")
-    local prompt="Successfully downloaded $path!\n"
+    local prompt="\n${TXT_BOLD}Successfully downloaded:${TXT_END} $path!\n"
 
     if [[ "$filetype" == "patch" ]]; then
         local file_size=$(awk "BEGIN {printf \"%.2f\", $file_size_bytes / 1024}")
@@ -353,6 +389,15 @@ success() {
 
 main() {
     local name="$1"     # Name of the package
+    local nopatch=0     # Skip searching for a patch file
+
+    if [ "$1" ==  "--no-patch" ]; then
+        nopatch=1
+        shift
+        name="$1"
+    elif [ "$1" == "--force-sort" ]; then
+        FORCE_SORT=1
+    fi
 
     [[ ! -d "$PKG_DIR" ]] && { mkdir -pv "$PKG_DIR"; }
     [[ -z "$name" ]] && { echo -e "Usage: spkg <package>"; return 1; }
@@ -366,7 +411,10 @@ main() {
 
     load_repos
     pkg_search "$name"
-    patch_search "$name"
+
+    if [ "$nopatch" != 1 ]; then
+        patch_search "$name"
+    fi
 }
 
 main "$@"
