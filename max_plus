@@ -1,24 +1,25 @@
 #!/bin/bash
 set -e -u
 
-# Global Variables
+# Prog specific
 VERSION="1.0.0"
-REPOS=()
-REPO_LEN=0
-REPO_LIST="REPO_LIST.txt"
+FORCE_SORT=0                # Force sorting the repositories
+FORCE_PATCH=0               # Force searching for patches
+NO_PATCH=0                  # Force no patch searching
+
+# Global Variables
+REPOS=()                    # Array of repositories (Auto-filled)
+REPO_LEN=0                  # Length of repository array (Auto-calculated)
+REPO_LIST="REPO_LIST.txt"   # List to fill repository array
 PKG_DIR="./sources/"        # Install Directory
 TIME_OUT="10"               # Connection timeout
 MAX_TIMEOUT="300"           # Full curl timeout
 SUCCESS_URLS=()             # Array of program urls
 SUCCESS_PATCH=()            # Array of patch urls
 MD5SUMS="$PKG_DIR/md5sums"  # Checksum list for LFS Packages
+
 LFS_CHECKSUM="https://www.linuxfromscratch.org/lfs/view/stable/md5sums"
 USER_AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
-
-# CLI Args
-FORCE_SORT=0
-FORCE_PATCH=0
-NO_PATCH=0
 
 # Colors and shit
 TXT_BOLD='\033[1m'
@@ -35,6 +36,18 @@ test_repo_speed() {
         --max-time 10 \
         -o /dev/null \
         -w '%{time_total}' 2>/dev/null || echo "999"
+}
+
+create_repolist() {
+    # Create a generic repository list
+    local content="# This is a generic repo list created by spkg\n"
+    content+="\n# North American Repositories: \n"
+    content+="https://lfs.gnlug.org/pub/lfs/lfs-packages/12.4/\n"
+    content+="https://ftp.lfs-matrix.net/pub/lfs/lfs-packages/12.4/\n"
+    content+="https://mirror.download.it/lfs/pub/lfs/lfs-packages/12.4/\n"
+    content+="https://ftp.osuosl.org/pub/lfs/lfs-packages/12.4/\n"
+    content+="https://mirror.download.it/lfs/pub/lfs/lfs-packages/12.4/\n"
+    echo -e "$content" > "$REPO_LIST"
 }
 
 load_repos() {
@@ -418,13 +431,27 @@ version_info() {
 }
 
 main() {
-    local name="$1"     # Name of the package
+    [[ ! -d "$PKG_DIR" ]] && { mkdir -pv "$PKG_DIR"; }
 
-    if [[ "$1" == --* || "$1" == -* ]]; then
-        if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+    if [ "$#" -eq 0 ] || [ ! -s "$REPO_LIST" ]; then
+        if [ "$#" -eq 0 ] && [ -s "$REPO_LIST" ]; then
+            echo -e "Usage: spkg [options] <package>"
+            exit 1
+        else
+            create_repolist
+            echo -e "$REPO_LIST created in $(realpath $REPO_LIST)"
+            exit 1
+        fi
+    fi
+
+    local name=""
+    local first_arg="${1:-}"
+
+    if [[ "$first_arg" == --* || "$first_arg" == -* ]]; then
+        if [ "$first_arg" == "--help" ] || [ "$first_arg" == "-h" ]; then
             help_info
             exit 0
-        elif [ "$1" == "--version" ] || [ "$1" == "-v" ]; then
+        elif [ "$first_arg" == "--version" ] || [ "$first_arg" == "-v" ]; then
             version_info
             exit 0
         fi
@@ -439,26 +466,10 @@ main() {
             echo -e "$name is not recognized.\nUse '--help' to see all available options."
             exit 1
         fi
-
-        shift
-        name="${1:-}"
-
-        if [[ -z "$name" ]]; then
-            echo -e "Usage: spkg [options] <package>"
-            exit 1
-        fi
-    else
-        name="$1"
     fi
 
-    [[ ! -d "$PKG_DIR" ]] && { mkdir -pv "$PKG_DIR"; }
-
-    if [ ! -f "$REPO_LIST" ]; then
-        local prompt="# Use # to comment out repos\n# Add repo urls below"
-        echo -e "$prompt" > "$REPO_LIST"
-        echo -e "$REPO_LIST created in $(realpath $REPO_LIST)"
-        exit 1
-    fi
+    shift
+    name="$first_arg"
 
     load_repos
     pkg_search "$name"
