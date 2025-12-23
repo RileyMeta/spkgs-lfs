@@ -462,9 +462,11 @@ main() {
             echo -e "$name is not recognized.\nUse '--help' to see all available options."
             exit 1
         fi
+
+        # keep this contained to only calls that we know have flags
+        local first_arg="${2:-}"
     fi
 
-    local first_arg="${2:-}"
     shift
     name="$first_arg"
 
