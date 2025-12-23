@@ -6,6 +6,7 @@ VERSION="1.0.0"
 FORCE_SORT=0                # Force sorting the repositories
 FORCE_PATCH=0               # Force searching for patches
 NO_PATCH=0                  # Force no patch searching
+QUIET=0                     # Suppress the majority of print statements
 
 # Global Variables
 REPOS=()                    # Array of repositories (Auto-filled)
@@ -54,7 +55,7 @@ load_repos() {
     local skip_sort=0
 
     while IFS= read -r line; do
-        # if any comment in the REPO_LIST contains '# --lock' it will not auto-sort.
+        # if any comment in the REPO_LIST contains '# --lock' it will not sort.
         if [[ "$line" == *"# --lock"* ]] || [[ "" == *"#--lock"* ]]; then
             skip_sort=1
             continue
@@ -127,7 +128,6 @@ write_sorted_repos() {
 }
 
 pkg_search() {
-    # Search for a single package
     local pkg="$1"
     local path=""
 
@@ -175,7 +175,6 @@ pkg_search() {
 }
 
 patch_search() {
-    # Search for a single patch
     local name="$1"
     local path=""
 
@@ -216,7 +215,6 @@ patch_search() {
 }
 
 file_exists() {
-    # Check if a package has already been downloaded
     local name="$1"
     full_file=$(realpath "$PKG_DIR/$name")
 
@@ -240,8 +238,6 @@ file_exists() {
 }
 
 download_pkg() {
-    # Download a single package
-    # Note: If the download passes the timeout it tries the next successful link
     local name="$1"
     local filetype="$2"
     local idx=0
@@ -377,13 +373,11 @@ check_sums() {
 }
 
 clean_up() {
-    # Clean up any files made from failed download attempts
     local name="$1"
     rm -rfv "$PKG_DIR/$name"
 }
 
 failure() {
-    # Tell the user a file couldn't be downloaded!
     local name="$1"
     tries=$((${#SUCCESS_URLS} - 1)) # Number of URLS attempted
     echo -e "Unable to download $name (after $tries tries)"
@@ -445,7 +439,7 @@ main() {
     fi
 
     local name=""
-    local first_arg="${1:-}"
+    local first_arg="$1"
 
     if [[ "$first_arg" == --* || "$first_arg" == -* ]]; then
         if [ "$first_arg" == "--help" ] || [ "$first_arg" == "-h" ]; then
@@ -456,18 +450,21 @@ main() {
             exit 0
         fi
 
-        if [[ "$1" ==  "--no-patch" || "$1" == "-n" ]]; then
+        if [[ "$first_arg" ==  "--no-patch" || "$first_arg" == "-n" ]]; then
             NO_PATCH=1
-        elif [[ "$1" == "--force-sort" || "$1" == "-f" ]]; then
+        elif [[ "$first_arg" == "--force-sort" || "$first_arg" == "-f" ]]; then
             FORCE_SORT=1
-        elif [[ "$1" == "--force-patch" || "$1" == "-p" ]]; then
+        elif [[ "$first_arg" == "--force-patch" || "$first_arg" == "-p" ]]; then
             FORCE_PATCH=1
+        elif [[ "$first_arg" == "--quiet" || "" == "-q" ]]; then
+            QUIET=1
         else
             echo -e "$name is not recognized.\nUse '--help' to see all available options."
             exit 1
         fi
     fi
 
+    local first_arg="${2:-}"
     shift
     name="$first_arg"
 
