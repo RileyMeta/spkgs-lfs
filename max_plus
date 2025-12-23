@@ -30,6 +30,28 @@ load_repos() {
     fi
 
     echo -e "Loaded repository list [$REPO_LEN $repo_prompt] to memory..."
+
+    # Sort repos by speed
+    if [ "$REPO_LEN" -gt 1 ]; then
+        echo -e "Testing repository speeds..."
+
+        local -a repo_speed_pairs
+        for repo in "${REPOS[@]}"; do
+            local speed=$(test_repo_speed "$repo")
+            echo -e "  [${speed}s] $repo"
+            repo_speed_pairs+=("$repo|$speed")
+        done
+
+        IFS=$'\n' repo_speed_pairs=($(sort -t'|' -k2 -n <<<"${repo_speed_pairs[*]}"))
+        unset IFS
+
+        REPOS=()
+        for pair in "${repo_speed_pairs[@]}"; do
+            REPOS+=("${pair%|*}")
+        done
+
+        echo -e "Repositories sorted by speed (fastest first)"
+    fi
 }
 
 pkg_search() {
@@ -63,6 +85,8 @@ pkg_search() {
         echo -e "[Error]: \"$pkg\" was not found in $REPO_LEN $repo_prompt..."
         return 1
     fi
+
+    # local filename=$(basename "${SUCCESS_URLS[0]}")
 
     # Ask download to do it's job
     if in_sumlist "$path"; then
@@ -106,6 +130,8 @@ patch_search() {
         return 0 # Most packages will not have patches
     fi
 
+    # local filename=$(basename "${SUCCESS_PATCH[0]}")
+
     # Ask download to do it's job
     if in_sumlist "$path"; then
         if ! file_exists "$path"; then
@@ -141,6 +167,19 @@ file_exists() {
         echo -e "Package [$name] already exists in: $PKG_DIR\n  Size: $file_size $measurement\n  Location: $full_file"
         return 0
     fi
+}
+
+test_repo_speed() {
+    # Test download speed of a repository
+    local url="$1"
+    local start_time=$(date +%s.%N)
+
+    curl -fsSL "$url" \
+        -A "$USER_AGENT" \
+        --connect-timeout "$TIME_OUT" \
+        --max-time 10 \
+        -o /dev/null \
+        -w '%{time_total}' 2>/dev/null || echo "999"
 }
 
 download_pkg() {
@@ -322,7 +361,7 @@ main() {
         local prompt="# Use # to comment out repos\n# Add repo urls below"
         echo -e "$prompt" > "$REPO_LIST"
         echo -e "$REPO_LIST created in $(realpath $REPO_LIST)"
-        exit 1
+        return 1
     fi
 
     load_repos
