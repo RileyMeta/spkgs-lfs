@@ -420,13 +420,21 @@ verify_checksum() {
     fi
 }
 
+download_sumlist() {
+    curl "$LFS_CHECKSUM" -o "$MD5SUMS"
+}
+
 in_sumlist() {
     # Check if a file pulled from repository is in checksum list
     local name="$1"
 
-    if [ -z "$MD5SUMS" ] || [ ! -f "$MD5SUMS" ]; then
-        curl "$LFS_CHECKSUM" -o "$PKG_DIR/md5sums"
+    if [ -s "$MD5SUMS" ]; then
+        download_sumlist
     fi
+
+    # if [ -z "$MD5SUMS" ] || [ ! -f "$MD5SUMS" ]; then
+    #     download_sumlist
+    # fi
 
     while IFS= read -r line; do
         [ -z "$line" ] || [[ "$line" == \#* ]] && continue
@@ -452,7 +460,7 @@ check_sums() {
     local found=0 # boolean
 
     if [ -z "$MD5SUMS" ] || [ ! -f "$MD5SUMS" ]; then
-        curl "$LFS_CHECKSUM" -o "$PKG_DIR/md5sums"
+        download_sumlist
     fi
 
     while IFS= read -r line; do
@@ -525,8 +533,7 @@ interrupt_cleanup() {
     echo -e "\nCTRL+C pressed. Performing cleanup..." >&2
 
     if [ "$SORTING_IN_PROGRESS" -eq 1 ]; then
-        rm -rf "$REPO_LIST"
-        echo -e "${TXT_RED}Removed incomplete $REPO_LIST${TXT_END}" >&2
+        echo -e "${TXT_RED}$(rm -rvf "$REPO_LIST") (incomplete)${TXT_END}" >&2
     fi
 
     exit 130
@@ -569,6 +576,10 @@ main() {
             prog_usage
             exit 1
         else
+            if [ ! -s "$MD5SUMS" ]; then
+                download_sumlist
+            fi
+
             create_repolist
             load_repos
             echo -e "$REPO_LIST created in $(realpath $REPO_LIST)" >&2
@@ -646,6 +657,10 @@ main() {
     if [[ -z "$name" ]]; then
         prog_usage
         exit 1
+    fi
+
+    if [ ! -s "$MD5SUMS" ]; then
+        download_sumlist
     fi
 
     load_repos
