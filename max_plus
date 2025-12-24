@@ -62,7 +62,7 @@ test_repo_speed() {
         -A "$USER_AGENT" \
         --connect-timeout "$TIME_OUT" \
         --max-time 10 \
-        -r 0-51200 \
+        -r 0-10485755 \
         -o /dev/null 2>/dev/null; then
 
         local end_time=$(date +%s.%N)
