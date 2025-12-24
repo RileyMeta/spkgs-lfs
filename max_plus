@@ -38,7 +38,7 @@ TXT_CYAN='\033[0;36m'
 trap interrupt_cleanup SIGINT
 
 test_repo_speed() {
-    # Test actual download speed by downloading first 50KB of a file
+    # Test actual download speed by downloading first 1MB of a file
     local repo="$1"
 
     # Find a test file
@@ -57,7 +57,7 @@ test_repo_speed() {
     local test_url="$repo$test_file"
     local start_time=$(date +%s.%N)
 
-    # Download first 50KB
+    # Download first 1MB
     if curl -fsSL "$test_url" \
         -A "$USER_AGENT" \
         --connect-timeout "$TIME_OUT" \
