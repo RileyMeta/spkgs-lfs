@@ -3,10 +3,12 @@ set -e -u
 
 # Prog specific
 VERSION="1.0.0"
+
+# CLI Arg Variables
 FORCE_SORT=0                # Force sorting the repositories
-FORCE_PATCH=0               # Force searching for patches
-NO_PATCH=0                  # Force no patch searching
+FORCE_PATCH=1               # Force searching for patches
 QUIET=0                     # Suppress the majority of print statements
+FORCE_IGNORE=0              # Ignore the checksum file and force a download
 
 # Global Variables
 REPOS=()                    # Array of repositories (Auto-filled)
@@ -26,28 +28,71 @@ USER_AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120
 TXT_BOLD='\033[1m'
 TXT_END='\033[0m'
 
+# test_repo_speed() {
+#     local url="$1"
+#     local start_time=$(date +%s.%N)
+
+#     curl -fsSL "$url" \
+#         -A "$USER_AGENT" \
+#         --connect-timeout "$TIME_OUT" \
+#         --max-time 10 \
+#         -o /dev/null \
+#         -w '%{time_total}' 2>/dev/null || echo "999"
+# }
+
 test_repo_speed() {
-    # Test download speed of a repository
-    local url="$1"
+    # Test actual download speed by downloading first 50KB of a file
+    local repo="$1"
+
+    # Find a test file
+    local test_file=$(curl -fsSL "$repo" \
+        -A "$USER_AGENT" \
+        --connect-timeout "$TIME_OUT" \
+        --max-time 5 \
+        | grep -oE "[^\"]*\.tar\.[^\" ]+" \
+        | head -n 1)
+
+    if [ -z "$test_file" ]; then
+        echo "999"
+        return
+    fi
+
+    local test_url="$repo$test_file"
     local start_time=$(date +%s.%N)
 
-    curl -fsSL "$url" \
+    # Download first 50KB
+    if curl -fsSL "$test_url" \
         -A "$USER_AGENT" \
         --connect-timeout "$TIME_OUT" \
         --max-time 10 \
-        -o /dev/null \
-        -w '%{time_total}' 2>/dev/null || echo "999"
+        -r 0-51200 \
+        -o /dev/null 2>/dev/null; then
+
+        local end_time=$(date +%s.%N)
+        awk "BEGIN {printf \"%.3f\", $end_time - $start_time}"
+    else
+        echo "999"
+    fi
 }
 
 create_repolist() {
     # Create a generic repository list
     local content="# This is a generic repo list created by spkg\n"
-    content+="\n# North American Repositories: \n"
     content+="https://lfs.gnlug.org/pub/lfs/lfs-packages/12.4/\n"
     content+="https://ftp.lfs-matrix.net/pub/lfs/lfs-packages/12.4/\n"
     content+="https://mirror.download.it/lfs/pub/lfs/lfs-packages/12.4/\n"
     content+="https://ftp.osuosl.org/pub/lfs/lfs-packages/12.4/\n"
     content+="https://mirror.download.it/lfs/pub/lfs/lfs-packages/12.4/\n"
+    content+="https://mirror.koddos.net/lfs/lfs-packages/12.4/\n"
+    content+="https://mirror.proximity-bg.com/LFS/lfs-packages/12.4/\n"
+    content+="https://mirror.dogado.de/LFS/lfs-packages/12.4/\n"
+    content+="https://ftp.ludd.ltu.se/pub/lfs/lfs-packages/12.4/\n"
+    content+="https://mirror.metanet.ch/LFS/lfs-packages/12.4/\n"
+    content+="https://lfs.it-privat.dk/pub/lfs/lfs-packages/12.4/\n"
+    content+="https://mirror-hk.koddos.net/lfs/lfs-packages/12.4/\n"
+    content+="https://mirrors.ustc.edu.cn/lfs/lfs-packages/12.4/\n"
+    content+="https://mirror.freedif.org/pub/lfs/lfs-packages/12.4/\n"
+
     echo -e "$content" > "$REPO_LIST"
 }
 
@@ -56,7 +101,7 @@ load_repos() {
 
     while IFS= read -r line; do
         # if any comment in the REPO_LIST contains '# --lock' it will not sort.
-        if [[ "$line" == *"# --lock"* ]] || [[ "" == *"#--lock"* ]]; then
+        if [[ "$line" == *"# --lock"* ]] || [[ "$line" == *"#--lock"* ]]; then
             skip_sort=1
             continue
         fi
@@ -75,17 +120,26 @@ load_repos() {
         repo_prompt="${repo_prompt}s"
     fi
 
-    echo -e "${TXT_BOLD}Loaded repository list to memory ...${TXT_END} [$REPO_LEN $repo_prompt]"
+    if [ "$QUIET" -eq 0 ]; then
+        local prompt="${TXT_BOLD}Loaded repository list to memory ...${TXT_END}"
+        prompt+=" [$REPO_LEN $repo_prompt]"
+        echo -e "$prompt"
+    fi
 
     # Sort repos by speed
     if [ "$REPO_LEN" -gt 1 ]; then
         if [ "$skip_sort" -eq 0 ] || [ "$FORCE_SORT" -eq 1 ]; then
-            echo -e "${TXT_BOLD}Testing repository speeds...${TXT_END}"
+            if [ "$QUIET" -eq 0 ]; then
+                echo -e "${TXT_BOLD}Testing repository speeds...${TXT_END}"
+            fi
 
             local -a repo_speed_pairs
             for repo in "${REPOS[@]}"; do
                 local speed=$(test_repo_speed "$repo")
-                echo -e "  $repo ... ${TXT_BOLD}[${speed:0:5}s]${TXT_END}"
+                if [ "$QUIET" -eq 0 ]; then
+                    echo -e "  $repo ... ${TXT_BOLD}[${speed:0:5}s]${TXT_END}"
+                fi
+
                 repo_speed_pairs+=("$repo|$speed")
             done
 
@@ -97,15 +151,26 @@ load_repos() {
                 REPOS+=("${pair%|*}")
             done
 
-            echo -e "${TXT_BOLD}Repositories sorted by speed${TXT_END} - fastest first"
+            if [ "$QUIET" -eq 0 ]; then
+                local prompt="${TXT_BOLD}Repositories sorted by speed${TXT_END}"
+                prompt+=" - fastest first"
+                echo -e "$prompt"
+            fi
 
-            # Write sorted list to file
             write_sorted_repos
+            load_repos
+
         elif [ "$skip_sort" -eq 1 ]; then
-            echo -e "${TXT_BOLD}Repository sorting locked${TXT_END} - using list as-is"
+            if [ "$QUIET" -eq 0 ]; then
+                local prompt="${TXT_BOLD}Repository sorting locked${TXT_END}"
+                prompt+=" - using list as-is"
+                echo -e "$prompt"
+            fi
         fi
     elif [ "$REPO_LEN" -eq 0 ]; then
-        echo -e "${TXT_BOLD}[Error]:${TXT_END} There are no repositories in $REPO_LIST"
+        local err_prompt="${TXT_BOLD}[Error]:${TXT_END} "
+        err_prompt+="There are no repositories in $REPO_LIST"
+        echo -e "$err_prompt" >&2
         exit 1
     fi
 }
@@ -118,8 +183,13 @@ write_sorted_repos() {
     content+="# This file is locked, remove any line with '# --lock' to to re-test and re-sort\n"
     echo -e "$content" > "$temp_file"
 
-    for repo in "${REPOS[@]}"; do
-        echo "$repo" >> "$temp_file"
+    local limit=3
+    for i in "${!REPOS[@]}"; do
+        if [ "$i" -lt "$limit" ]; then
+            echo "${REPOS[$i]}" >> "$temp_file"
+        else
+            echo "# ${REPOS[$i]}" >> "$temp_file"
+        fi
     done
 
     # Overwrite original
@@ -130,12 +200,17 @@ write_sorted_repos() {
 pkg_search() {
     local pkg="$1"
     local path=""
+    local prefix=""
 
-    echo -e "\n${TXT_BOLD}Searching for $pkg...${TXT_END}"
+    if [ "$QUIET" -eq 0 ]; then
+        prefix="\n"
+    fi
+    echo -e "$prefix${TXT_BOLD}Searching for $pkg...${TXT_END}"
 
     for repo in "${REPOS[@]}"; do
-        path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
-            -A "$USER_AGENT" --no-progress-meter \
+        path=$(curl -fsSL "$repo" \
+            --connect-timeout "$TIME_OUT" \
+            -A "$USER_AGENT" --no-progress-bar \
             | grep -oE "$pkg[^\"]*\.tar\.[^\" ]+" \
             | head -n 1)
 
@@ -154,23 +229,31 @@ pkg_search() {
             local repo_prompt="repository"
         fi
 
-        echo -e "${TXT_BOLD}[Error]:${TXT_END} \"$pkg\" was not found in $REPO_LEN $repo_prompt..."
+        local err_prompt="${TXT_BOLD}[Error]:${TXT_END} "
+        err_prompt+="\"$pkg\" was not found in $REPO_LEN $repo_prompt..."
+        echo -e "$err_prompt" >&2
         return 1
     fi
 
     # Ask download to do it's job
-    if in_sumlist "$path"; then
-        if ! file_exists "$path"; then
-            if download_pkg "$path" "pkg"; then
-                success "$path" "pkg"
-            else
-                echo -e "${TXT_BOLD}[Error]:${TXT_END} Unable to download $path after trying all available mirrors."
-                exit 1
+    if [ "$FORCE_IGNORE" -eq 0 ]; then
+        if in_sumlist "$path"; then
+            if ! file_exists "$path"; then
+                if download_pkg "$path" "pkg"; then
+                    success "$path" "pkg"
+                else
+                    local err_prompt="${TXT_BOLD}[Error]:${TXT_END} "
+                    err_prompt+="Unable to download $path after trying all available mirrors."
+                    echo -e "$err_prompt" >&2
+                    exit 1
+                fi
             fi
+        else
+            local err_prompt="${TXT_BOLD}[Error]:${TXT_END} "
+            err_prompt+="\"$path\" not in official LFS package list - aborting"
+            echo -e "$err_prompt" >&2
+            exit 1
         fi
-    else
-        echo -e "${TXT_BOLD}[Error]:${TXT_END} $path not in official LFS package list - aborting"
-        exit 1
     fi
 }
 
@@ -178,7 +261,9 @@ patch_search() {
     local name="$1"
     local path=""
 
-    echo -e "\n${TXT_BOLD}Searching for $name Patch...${TXT_END}"
+    if [ "$QUIET" -eq 0 ]; then
+        echo -e "\n${TXT_BOLD}Searching for $name Patch...${TXT_END}"
+    fi
 
     for repo in "${REPOS[@]}"; do
         path=$(curl -fsSL "$repo" --connect-timeout "$TIME_OUT" \
@@ -188,14 +273,20 @@ patch_search() {
 
         if [ -n "$path" ]; then
             SUCCESS_PATCH+=("$repo$path")
-            echo -e "  $repo$path ... ${TXT_BOLD}[FOUND]${TXT_END}"
+            if [ "$QUIET" -eq 0 ]; then
+                echo -e "  $repo$path ... ${TXT_BOLD}[FOUND]${TXT_END}"
+            fi
         else
-            echo -e "  $repo ... ${TXT_BOLD}[NOT FOUND]${TXT_END}"
+            if [ "$QUIET" -eq 0 ]; then
+                echo -e "  $repo ... ${TXT_BOLD}[NOT FOUND]${TXT_END}"
+            fi
         fi
     done
 
     if [ "${#SUCCESS_PATCH[@]}" -eq 0 ]; then
-        echo -e "${TXT_BOLD}[Note]:${TXT_END} No patches were found for $name (this may be normal)."
+        local prompt="${TXT_BOLD}[Note]:${TXT_END} "
+        prompt+="No patches were found for $name (this may be normal)."
+        echo -e "$prompt"
         return 0 # Most packages will not have patches
     fi
 
@@ -207,7 +298,9 @@ patch_search() {
             fi
         fi
     else
-        echo -e "${TXT_BOLD}[Warning]:${TXT_END} Patch $path not in official LFS list - skipping"
+        local prompt="${TXT_BOLD}[Warning]:${TXT_END} "
+        prompt+="Patch $path not in official LFS list - skipping"
+        echo -e "$prompt"
         return 0 # Not Fatal for patches
     fi
 
@@ -219,7 +312,9 @@ file_exists() {
     full_file=$(realpath "$PKG_DIR/$name")
 
     if [[ ! -f "$full_file" ]]; then
-        echo -e "  Package [$name] does not exist in: $PKG_DIR"
+        if [ "$QUIET" -eq 0 ]; then
+            echo -e "  Package [$name] does not exist in: $PKG_DIR"
+        fi
         return 1
     else
         file_size_bytes=$(wc -c < "$full_file")
@@ -231,8 +326,10 @@ file_exists() {
             local measurement="MB"
         fi
 
-        NO_PATCH=1
-        echo -e "\n${TXT_BOLD}Package [$name] already exists in:${TXT_END} $PKG_DIR\n  Size: $file_size $measurement\n  Location: $full_file"
+        FORCE_PATCH=0
+        local prompt="\n${TXT_BOLD}Package [$name] already exists in:${TXT_END} $PKG_DIR"
+        prompt+="\n  Size: $file_size $measurement\n  Location: $full_file"
+        echo -e "$prompt"
         return 0
     fi
 }
@@ -251,25 +348,33 @@ download_pkg() {
     for pkg_url in "${url_list[@]}"; do
         echo -e "\n${TXT_BOLD}Downloading:${TXT_END} $name\n  From: $pkg_url"
 
-        if curl -fSL "$pkg_url" \
+        if [ "$QUIET" -eq 0 ]; then
+            local command_args="-fSL"
+        else
+            local command_args="-fsSL"
+        fi
+
+        if curl "$command_args" "$pkg_url" \
             -A "$USER_AGENT" \
             -o "$PKG_DIR/$name" \
             --max-time "$MAX_TIMEOUT"; then
 
-            if check_sums "$name"; then
-                return 0 # Success
-            else
-                echo -e "${TXT_BOLD}Checksum verification failed${TXT_END}, trying next mirror..."
-                ((idx++))
+            if [ "$FORCE_IGNORE" -eq 0 ]; then
+                if check_sums "$name"; then
+                    return 0 # Success
+                else
+                    echo -e "${TXT_BOLD}Checksum verification failed${TXT_END}, trying next mirror..."
+                    ((idx++))
 
-                if [ "$idx" -eq "${#url_list[@]}" ]; then
-                    return 1 # All mirrors (and checksums) failed
+                    if [ "$idx" -eq "${#url_list[@]}" ]; then
+                        return 1 # All mirrors (and checksums) failed
+                    fi
+                    continue
                 fi
-                continue
             fi
         else
             local exit_code="$?"
-            echo -e "  Download failed with exit code $exit_code"
+            echo -e "  Download failed with exit code $exit_code" >&2
 
             # Clean up failed downloads
             clean_up "$name"
@@ -289,7 +394,7 @@ verify_checksum() {
     local expected_hash="$2"
 
     if [[ ! -f "$PKG_DIR/$filename" ]]; then
-        echo -e "File Not Found: $filename"
+        echo -e "File Not Found: $filename" >&2
         return 1
     fi
 
@@ -302,7 +407,7 @@ verify_checksum() {
         local prompt="  Checksum failed to verify: $filename\n"
         prompt+="  - Expected: $expected_hash\n"
         prompt+="  - Received: $actual_hash"
-        echo -e "$prompt"
+        echo -e "$prompt" >&2
         return 1
     fi
 }
@@ -320,12 +425,16 @@ in_sumlist() {
 
         local filename=$(echo "$line" | awk '{$1=""; print $0}' | xargs)
         if [[ "$filename" == "$name" ]]; then
-            echo -e "  $name found in md5sums list"
+            if [ "$QUIET" -eq 0 ]; then
+                echo -e "  $name found in md5sums list"
+            fi
             return 0 # Found in list
         fi
     done < "$MD5SUMS"
 
-    echo -e "  ${TXT_BOLD}$name not found in md5sums list${TXT_END} - skipping download"
+    local err_prompt="  ${TXT_BOLD}$name not found in md5sums list${TXT_END}"
+    err_prompt+=" - skipping download"
+    echo -e "$err_prompt" >&2
     return 1 # Not Found
 }
 
@@ -347,13 +456,17 @@ check_sums() {
             local filename=$(echo -e "$line" | awk '{$1=""; print $0}' | xargs)
 
             if [[ "$filename" == *".patch" ]]; then
-                echo -e "\n${TXT_BOLD}Verifying patch:${TXT_END} $filename"
+                if [ "$QUIET" -eq 0 ]; then
+                    echo -e "\n${TXT_BOLD}Verifying patch:${TXT_END} $filename"
+                fi
                 if ! verify_checksum "$filename" "$expected_hash"; then
                     clean_up "$filename"
                     return 1 # Checksum failed
                 fi
             else
-                echo -e "\n${TXT_BOLD}Verifying program:${TXT_END} $filename"
+                if [ "$QUIET" -eq 0 ]; then
+                    echo -e "\n${TXT_BOLD}Verifying program:${TXT_END} $filename"
+                fi
                 if ! verify_checksum "$filename" "$expected_hash"; then
                     clean_up "$filename"
                     return 1 # Checksum failed
@@ -364,7 +477,9 @@ check_sums() {
 
     # Make sure file is found in MD5 before saving to the disk.
     if [ "$found" -eq 0 ]; then
-        echo -e "[Error]: $name not found in md5sum list - cannot verify integrity"
+        local err_prompt="${TXT_BOLD}[Error]:${TXT_END} "
+        err_prompt+="\"$name\" not found in md5sum list - cannot verify integrity"
+        echo -e "$err_prompt" >&2
         clean_up "$name"
         return 1
     fi
@@ -380,7 +495,7 @@ clean_up() {
 failure() {
     local name="$1"
     tries=$((${#SUCCESS_URLS} - 1)) # Number of URLS attempted
-    echo -e "Unable to download $name (after $tries tries)"
+    echo -e "Unable to download $name (after $tries tries)" >&2
 }
 
 success() {
@@ -404,10 +519,11 @@ success() {
 
 help_info() {
     local prompt="Usage: spkg [OPTION] <package>..."
-    prompt+="\nEasily download a specific package from a repository."
-    prompt+="\n\n  -n, --no-patch\tdo not check for patches"
+    prompt+="\nEasily download a specific package from a repository.\n"
     prompt+="\n  -f, --force-sort\tforce the downloader to re-sort the repositories"
-    prompt+="\n  -p, --force-patch\tforce the downloader to check for patches"
+    prompt+="\n  -p, --patch\t\tforce the downloader to check for patches"
+    prompt+="\n  -q, --quiet\t\tsuppress the majority of the output"
+    prompt+="\n  -I, --ignore\t\t[!] Ignore the checksum file (Not Recommended)"
     prompt+="\n\n  -h, --help\t\tdisplay this help and exit"
     prompt+="\n  -v, --version\t\toutput version information and exit"
     prompt+="\n\nReport bugs to: https://github.com/RileyMeta/spkgs-lfs/pulls"
@@ -429,16 +545,16 @@ main() {
 
     if [ "$#" -eq 0 ] || [ ! -s "$REPO_LIST" ]; then
         if [ "$#" -eq 0 ] && [ -s "$REPO_LIST" ]; then
-            echo -e "Usage: spkg [options] <package>"
+            echo -e "Usage: spkg [options] <package>" >&2
             exit 1
         else
             create_repolist
-            echo -e "$REPO_LIST created in $(realpath $REPO_LIST)"
+            load_repos
+            echo -e "$REPO_LIST created in $(realpath $REPO_LIST)" >&2
             exit 1
         fi
     fi
 
-    local name=""
     local first_arg="$1"
 
     if [[ "$first_arg" == --* || "$first_arg" == -* ]]; then
@@ -450,16 +566,18 @@ main() {
             exit 0
         fi
 
-        if [[ "$first_arg" ==  "--no-patch" || "$first_arg" == "-n" ]]; then
-            NO_PATCH=1
-        elif [[ "$first_arg" == "--force-sort" || "$first_arg" == "-f" ]]; then
+        if [[ "$first_arg" == "--force-sort" || "$first_arg" == "-f" ]]; then
             FORCE_SORT=1
-        elif [[ "$first_arg" == "--force-patch" || "$first_arg" == "-p" ]]; then
+        elif [[ "$first_arg" == "--patch" || "$first_arg" == "-p" ]]; then
             FORCE_PATCH=1
-        elif [[ "$first_arg" == "--quiet" || "" == "-q" ]]; then
+        elif [[ "$first_arg" == "--quiet" || "$first_arg" == "-q" ]]; then
             QUIET=1
+        elif [[ "$first_arg" == "--ignore" || "$first_arg" == "-I" ]]; then
+            FORCE_IGNORE=1
         else
-            echo -e "$name is not recognized.\nUse '--help' to see all available options."
+            local err_prompt="$first_arg is not recognized."
+            err_prompt+="\nUse '--help' to see all available options."
+            echo -e "$err_prompt" >&2
             exit 1
         fi
 
@@ -468,12 +586,12 @@ main() {
     fi
 
     shift
-    name="$first_arg"
+    local name="$first_arg"
 
     load_repos
     pkg_search "$name"
 
-    if [ "$NO_PATCH" != 1 ] || [ "$FORCE_PATCH" != 0 ]; then
+    if [ "$FORCE_PATCH" != 0 ]; then
         patch_search "$name"
     fi
 }
