@@ -6,7 +6,7 @@ VERSION="1.0.0"
 
 # CLI Arg Variables
 FORCE_SORT=0                # Force sorting the repositories
-FORCE_PATCH=1               # Force searching for patches
+FORCE_PATCH=0               # Force searching for patches
 QUIET=0                     # Suppress the majority of print statements
 FORCE_IGNORE=0              # Ignore the checksum file and force a download
 
@@ -326,7 +326,6 @@ file_exists() {
             local measurement="MB"
         fi
 
-        FORCE_PATCH=0
         local prompt="\n${TXT_BOLD}Package [$name] already exists in:${TXT_END} $PKG_DIR"
         prompt+="\n  Size: $file_size $measurement\n  Location: $full_file"
         echo -e "$prompt"
@@ -555,43 +554,82 @@ main() {
         fi
     fi
 
-    local first_arg="$1"
+    while getopts ":hvfpqI-:" opt; do
+        case "$opt" in
+            h)
+                help_info
+                exit 0
+                ;;
+            v)
+                version_info
+                exit 0
+                ;;
+            f)
+                FORCE_SORT=1
+                ;;
+            p)
+                FORCE_PATCH=1
+                ;;
+            q)
+                QUIET=1
+                ;;
+            I)
+                FORCE_IGNORE=1
+                ;;
+            -)
+                # Handle long options
+                case "$OPTARG" in
+                    help)
+                        help_info
+                        exit 0
+                        ;;
+                    version)
+                        version_info
+                        exit 0
+                        ;;
+                    force-sort)
+                        FORCE_SORT=1
+                        ;;
+                    patch)
+                        FORCE_PATCH=1
+                        ;;
+                    quiet)
+                        QUIET=1
+                        ;;
+                    ignore)
+                        FORCE_IGNORE=1
+                        ;;
+                    *)
+                        echo -e "--$OPTARG is not recognized." >&2
+                        echo -e "Use '--help' to see all available options." >&2
+                        exit 1
+                        ;;
+                esac
+                ;;
+            \?)
+                echo -e "-$OPTARG is not recognized." >&2
+                echo -e "Use '--help' to see all available options." >&2
+                exit 1
+                ;;
+            :)
+                echo -e "Option -$OPTARG requires an argument." >&2
+                exit 1
+                ;;
+        esac
+    done
 
-    if [[ "$first_arg" == --* || "$first_arg" == -* ]]; then
-        if [ "$first_arg" == "--help" ] || [ "$first_arg" == "-h" ]; then
-            help_info
-            exit 0
-        elif [ "$first_arg" == "--version" ] || [ "$first_arg" == "-v" ]; then
-            version_info
-            exit 0
-        fi
+    shift $((OPTIND - 1))
+    local name="${1:-}"
 
-        if [[ "$first_arg" == "--force-sort" || "$first_arg" == "-f" ]]; then
-            FORCE_SORT=1
-        elif [[ "$first_arg" == "--patch" || "$first_arg" == "-p" ]]; then
-            FORCE_PATCH=1
-        elif [[ "$first_arg" == "--quiet" || "$first_arg" == "-q" ]]; then
-            QUIET=1
-        elif [[ "$first_arg" == "--ignore" || "$first_arg" == "-I" ]]; then
-            FORCE_IGNORE=1
-        else
-            local err_prompt="$first_arg is not recognized."
-            err_prompt+="\nUse '--help' to see all available options."
-            echo -e "$err_prompt" >&2
-            exit 1
-        fi
-
-        # keep this contained to only calls that we know have flags
-        local first_arg="${2:-}"
+    if [[ -z "$name" ]]; then
+        echo -e "Usage: spkg [options] <package>" >&2
+        exit 1
     fi
-
-    shift
-    local name="$first_arg"
 
     load_repos
     pkg_search "$name"
 
-    if [ "$FORCE_PATCH" != 0 ]; then
+    if [ "$FORCE_PATCH" -eq 1 ]; then
         patch_search "$name"
     fi
 }
