@@ -21,6 +21,8 @@ SUCCESS_URLS=()             # Array of program urls
 SUCCESS_PATCH=()            # Array of patch urls
 MD5SUMS="$PKG_DIR/md5sums"  # Checksum list for LFS Packages
 SORTING_IN_PROGRESS=0       # Boolean for cleanup
+ACTIVE_DOWNLOAD=0           # Boolean for cleanup
+ACTIVE_PACKAGE=""           # Full package name of the download in progress
 
 LFS_CHECKSUM="https://www.linuxfromscratch.org/lfs/view/stable/md5sums"
 USER_AGENT="Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
@@ -353,6 +355,9 @@ download_pkg() {
         local -a url_list=("${SUCCESS_PATCH[@]}")
     fi
 
+    ACTIVE_DOWNLOAD=1
+    ACTIVE_PACKAGE="$name"
+
     for pkg_url in "${url_list[@]}"; do
         echo -e "\n${TXT_BOLD}Downloading:${TXT_END} $name\n  From: $pkg_url"
 
@@ -534,6 +539,10 @@ interrupt_cleanup() {
 
     if [ "$SORTING_IN_PROGRESS" -eq 1 ]; then
         echo -e "${TXT_RED}$(rm -rvf "$REPO_LIST") (incomplete)${TXT_END}" >&2
+    fi
+
+    if [ "$ACTIVE_DOWNLOAD" -eq 1 ]; then
+        echo -e "${TXT_RED}$(rm -rfv "$PKG_DIR$ACTIVE_PACKAGE") (incomplete)${TXT_END}" >&2
     fi
 
     exit 130
