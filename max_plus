@@ -374,6 +374,7 @@ download_pkg() {
 
             if [ "$FORCE_IGNORE" -eq 0 ]; then
                 if check_sums "$name"; then
+                    ACTIVE_DOWNLOAD=0
                     return 0 # Success
                 else
                     echo -e "${TXT_BOLD}${TXT_RED}Checksum verification failed${TXT_END}, trying next mirror..."
